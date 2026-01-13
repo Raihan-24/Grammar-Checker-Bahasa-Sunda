@@ -12,48 +12,62 @@ public class SyntaxAnalyzerSunda {
 
     static List<String> tokens;
     static int index;
+    static int step = 1;
 
-    // ===== NODE PARSE TREE =====
-    static class Node {
-        String label;
-        List<Node> children = new ArrayList<>();
+    static List<String[]> derivasi = new ArrayList<>();
 
-        Node(String label) {
-            this.label = label;
-        }
+    static String subjek = "-";
+    static String predikat = "-";
+    static String objek = "-";
+    static String prep = "-";
+    static String keterangan = "-";
 
-        void add(Node child) {
-            children.add(child);
-        }
-    }
+    static String subjekKategori = "-";
+    static String objekKategori = "-";
+    static String ketKategori = "-";
 
-    static Node root;
+    static String adjSubjek = "-";
+    static String adjObjek = "-";
 
+    static String aturanCFG = "-";
+
+    // ===== MAIN =====
     public static void main(String[] args) {
         Scanner sc = new Scanner(System.in);
 
-        System.out.println("================================");
+        System.out.println("==============================");
         System.out.println(" SYNTAX ANALYZER BAHASA SUNDA ");
-        System.out.println("================================");
+        System.out.println("==============================");
 
-        System.out.print("Masukkan kalimat: ");
-        tokens = Arrays.asList(sc.nextLine().toLowerCase().trim().split("\\s+"));
+        System.out.print("\nMasukkan kalimat: ");
+        String input = sc.nextLine().toLowerCase().trim();
+
+        tokens = Arrays.asList(input.split("\\s+"));
         index = 0;
+        step = 1;
+        derivasi.clear();
 
         if (!cekLexikal()) {
-            System.out.println("❌ Kesalahan leksikal.");
+            System.out.println("\n - STATUS : TIDAK VALID ❌");
+            System.out.println(" - ANALISIS :");
+            System.out.println(" Terdapat kata yang tidak dikenali.");
             return;
         }
 
-        root = parseS();
+        boolean valid = parseS();
+        tampilkanTabel();
 
-        if (root != null && index == tokens.size()) {
-            System.out.println("\nSTATUS: VALID ✅");
-            System.out.println("\n[ VISUALISASI PARSE TREE ]");
-            printTree(root, "", true);
+        if (valid && index == tokens.size()) {
+            tentukanAturanCFG();
+            System.out.println("\n - STATUS : VALID ✅");
+            System.out.println(" - ATURAN CFG : " + aturanCFG);
+            tampilkanParseTree();
         } else {
-            System.out.println("\nSTATUS: TIDAK VALID ❌");
+            System.out.println("\n - STATUS : TIDAK VALID ❌");
+            tampilkanPenjelasanTidakValid();
         }
+
+        sc.close();
     }
 
     // ===== CEK LEKSIKAL =====
@@ -61,140 +75,224 @@ public class SyntaxAnalyzerSunda {
         for (String w : tokens) {
             if (!(pronomina.contains(w) || nomina.contains(w) || verba.contains(w)
                     || adjektiva.contains(w) || preposisi.contains(w) || adverbia.contains(w))) {
-                System.out.println("Kata tidak dikenal: " + w);
                 return false;
             }
         }
         return true;
     }
 
-    // ===== S → NP VP [NP] [PP] [AdvP] =====
-    static Node parseS() {
-        Node S = new Node("S");
+    // ===== PARSER =====
+    static boolean parseS() {
+        catat("S → NP VP [NP] [PP] [AdvP]", sisa());
 
-        Node NP = parseNP();
-        if (NP == null) return null;
-        S.add(NP);
+        if (!parseNP(true)) return false;
+        if (!parseVP()) return false;
 
-        Node VP = parseVP();
-        if (VP == null) return null;
-        S.add(VP);
+        parseNP(false);
+        parsePP();
+        parseAdvP();
 
-        Node obj = parseNP();
-        if (obj != null) S.add(obj);
-
-        Node pp = parsePP();
-        if (pp != null) S.add(pp);
-
-        Node adv = parseAdvP();
-        if (adv != null) S.add(adv);
-
-        return S;
+        return true;
     }
 
-    // ===== NP → Pronomina | Nomina | Nomina Adjektiva =====
-    static Node parseNP() {
-        if (index >= tokens.size()) return null;
+    static boolean parseNP(boolean isSubjek) {
+        if (index >= tokens.size()) return false;
         String w = tokens.get(index);
 
-        Node NP = new Node("NP");
-
         if (pronomina.contains(w)) {
-            Node pro = new Node("Pronomina");
-            pro.add(new Node(w));
-            NP.add(pro);
+            catat("NP → Pronomina", sisa());
+            if (isSubjek) {
+                subjek = w;
+                subjekKategori = "Pronomina";
+            } else {
+                objek = w;
+                objekKategori = "Pronomina";
+            }
             index++;
-            return NP;
+            return true;
         }
 
         if (nomina.contains(w)) {
-            Node nom = new Node("Nomina");
-            nom.add(new Node(w));
-            NP.add(nom);
+            catat("NP → Nomina", sisa());
+            if (isSubjek) {
+                subjek = w;
+                subjekKategori = "Nomina";
+            } else {
+                objek = w;
+                objekKategori = "Nomina";
+            }
             index++;
 
             if (index < tokens.size() && adjektiva.contains(tokens.get(index))) {
-                Node adj = new Node("Adjektiva");
-                adj.add(new Node(tokens.get(index)));
-                NP.add(adj);
+                catat("Nomina → Adjektiva", sisa());
+                if (isSubjek) adjSubjek = tokens.get(index);
+                else adjObjek = tokens.get(index);
                 index++;
             }
-            return NP;
+            return true;
         }
-        return null;
+        return false;
     }
 
-    // ===== VP → Verba | Verba Adverbia =====
-    static Node parseVP() {
-        if (index >= tokens.size()) return null;
+    static boolean parseVP() {
+        if (index >= tokens.size()) return false;
         String w = tokens.get(index);
 
-        if (!verba.contains(w)) return null;
-
-        Node VP = new Node("VP");
-
-        Node v = new Node("Verba");
-        v.add(new Node(w));
-        VP.add(v);
-        index++;
-
-        if (index < tokens.size() && adverbia.contains(tokens.get(index))) {
-            Node adv = new Node("Adverbia");
-            adv.add(new Node(tokens.get(index)));
-            VP.add(adv);
+        if (verba.contains(w)) {
+            catat("VP → Verba", sisa());
+            predikat = w;
             index++;
+            return true;
         }
-        return VP;
+        return false;
     }
 
-    // ===== PP → Preposisi Nomina =====
-    static Node parsePP() {
-        if (index + 1 >= tokens.size()) return null;
+    static boolean parsePP() {
+        if (index + 1 >= tokens.size()) return false;
 
-        String p = tokens.get(index);
+        String w = tokens.get(index);
         String n = tokens.get(index + 1);
 
-        if (preposisi.contains(p) && nomina.contains(n)) {
-            Node PP = new Node("PP");
-
-            Node prep = new Node("Preposisi");
-            prep.add(new Node(p));
-
-            Node nom = new Node("Nomina");
-            nom.add(new Node(n));
-
-            PP.add(prep);
-            PP.add(nom);
-
+        if (preposisi.contains(w) && nomina.contains(n)) {
+            catat("PP → Preposisi Nomina", sisa());
+            prep = w;
+            keterangan = n;
+            ketKategori = "Nomina";
             index += 2;
-            return PP;
+            return true;
         }
-        return null;
+        return false;
     }
 
-    // ===== AdvP → Adverbia =====
-    static Node parseAdvP() {
-        if (index >= tokens.size()) return null;
-
+    static boolean parseAdvP() {
+        if (index >= tokens.size()) return false;
         String w = tokens.get(index);
+
         if (adverbia.contains(w)) {
-            Node AdvP = new Node("AdvP");
-            Node adv = new Node("Adverbia");
-            adv.add(new Node(w));
-            AdvP.add(adv);
+            catat("AdvP → Adverbia", sisa());
+            keterangan = w;
+            ketKategori = "Adverbia";
             index++;
-            return AdvP;
+            return true;
         }
-        return null;
+        return false;
     }
 
-    // ===== CETAK PARSE TREE =====
-    static void printTree(Node node, String indent, boolean last) {
-        System.out.println(indent + (last ? "└── " : "├── ") + node.label);
-        indent += last ? "    " : "│   ";
+    static void tentukanAturanCFG() {
+        boolean adaObjek = !objek.equals("-");
+        boolean adaPP = !prep.equals("-");
+        boolean adaAdv = adverbia.contains(keterangan);
 
-        for (int i = 0; i < node.children.size(); i++) {
-            printTree(node.children.get(i), indent, i == node.children.size() - 1);
+        if (adaObjek && adaPP) aturanCFG = "S → NP VP NP PP";
+        else if (adaObjek && adaAdv) aturanCFG = "S → NP VP NP AdvP";
+        else if (adaObjek) aturanCFG = "S → NP VP NP";
+        else if (adaAdv) aturanCFG = "S → NP VP AdvP";
+        else aturanCFG = "S → NP VP";
+    }
+
+    static void catat(String aturan, String hasil) {
+        derivasi.add(new String[]{String.valueOf(step++), aturan, hasil});
+    }
+
+    static String sisa() {
+        if (index >= tokens.size()) return "-";
+        return String.join(" ", tokens.subList(index, tokens.size()));
+    }
+
+    static void tampilkanTabel() {
+        System.out.println("\nLangkah | Aturan Produksi | Sisa Input");
+        System.out.println("---------------------------------------------------------");
+        for (String[] r : derivasi) {
+            System.out.printf("%-7s | %-30s | %s\n", r[0], r[1], r[2]);
         }
+    }
+
+    // ===== PARSE TREE (HANYA BAGIAN INI YANG DISESUAIKAN) =====
+    static void tampilkanParseTree() {
+        System.out.println("\n[ VISUALISASI PARSE TREE ]");
+        System.out.println("S");
+
+        System.out.println("├── NP");
+        System.out.println("│   └── " + subjekKategori);
+        System.out.println("│       └── " + subjek);
+        if (!adjSubjek.equals("-")) {
+            System.out.println("│           └── Adjektiva");
+            System.out.println("│               └── " + adjSubjek);
+        }
+
+        System.out.println("├── VP");
+        System.out.println("│   └── Verba");
+        System.out.println("│       └── " + predikat);
+
+        // 👉 PERBAIKAN KHUSUS UNTUK: arurang indit ayeuna
+        if ("Adverbia".equals(ketKategori) && objek.equals("-") && prep.equals("-")) {
+            System.out.println("│           └── Adverbia");
+            System.out.println("│               └── " + keterangan);
+        }
+
+        if (!objek.equals("-")) {
+            System.out.println("├── NP");
+            System.out.println("│   └── " + objekKategori);
+            System.out.println("│       └── " + objek);
+            if (!adjObjek.equals("-")) {
+                System.out.println("│           └── Adjektiva");
+                System.out.println("│               └── " + adjObjek);
+            }
+        }
+
+        if (!prep.equals("-")) {
+            System.out.println("└── Keterangan");
+            System.out.println("    ├── Preposisi");
+            System.out.println("    │   └── " + prep);
+            System.out.println("    └── Nomina");
+            System.out.println("        └── " + keterangan);
+        }
+    }
+
+    // ===== ANALISIS TIDAK VALID (TIDAK DIUBAH) =====
+    static void tampilkanPenjelasanTidakValid() {
+        System.out.println(" - ANALISIS :");
+
+        List<String> pola = new ArrayList<>();
+        for (String t : tokens) {
+            pola.add(kategori(t));
+        }
+
+        System.out.println(" Pola terbaca : " + String.join(" ", pola));
+
+        if (!tokens.isEmpty() &&
+                !pronomina.contains(tokens.get(0)) &&
+                !nomina.contains(tokens.get(0))) {
+            System.out.println(" Masalah : Kalimat tidak diawali subjek");
+            System.out.println(" Aturan : S → NP VP [NP] [PP] [AdvP]");
+            return;
+        }
+
+        boolean adaVerba = false;
+        for (String t : tokens) {
+            if (verba.contains(t)) {
+                adaVerba = true;
+                break;
+            }
+        }
+
+        if (!adaVerba) {
+            System.out.println(" Masalah : Predikat tidak ditemukan");
+            System.out.println(" Aturan : VP → Verba");
+            return;
+        }
+
+        System.out.println(" Masalah : Urutan frasa tidak sesuai CFG");
+        System.out.println(" Aturan : S → NP VP [NP] [PP] [AdvP]");
+    }
+
+    static String kategori(String w) {
+        if (pronomina.contains(w)) return "Pronomina";
+        if (nomina.contains(w)) return "Nomina";
+        if (verba.contains(w)) return "Verba";
+        if (adjektiva.contains(w)) return "Adjektiva";
+        if (preposisi.contains(w)) return "Preposisi";
+        if (adverbia.contains(w)) return "Adverbia";
+        return "TidakDikenal";
     }
 }
